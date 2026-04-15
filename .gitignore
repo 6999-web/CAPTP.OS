@@ -30,9 +30,5 @@ dist/
 node_modules/
 # MinIO / storage data (if any)
 storage/
-# Config files that may contain credentials
-backend/config.py
-test_keys2.py
 # Other sensitive files
-*.json
-*.ini
+# *.ini

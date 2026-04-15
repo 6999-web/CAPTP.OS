@@ -1,10 +1,38 @@
+# Standard Python & VSCode ignores
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.sqlite3
 *.log
-*.err
-node_modules/
-dist/
+*.env
+*.env.*
+*.secret
+*.key
+*.pem
+*.crt
+*.cer
+*.der
+*.csr
+# Virtual environment
+captp_env/
+# IDE / editor
+.vscode/
+.idea/
+# OS files
 .DS_Store
-*.swp
-*.swo
+Thumbs.db
+# Build / distribution
+build/
+dist/
+*.egg-info/
+# Node / frontend
+node_modules/
+# MinIO / storage data (if any)
+storage/
+# Config files that may contain credentials
+backend/config.py
+test_keys2.py
+# Other sensitive files
+*.json
+*.ini

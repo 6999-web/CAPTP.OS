@@ -189,37 +189,6 @@ async def tactical_chat(request: ChatRequest):
     else:
         raise HTTPException(status_code=500, detail=result["error"])
 
-@app.post("/api/analyze-pose")
-async def analyze_pose(landmarks: List[dict], mode: str = "SHOOTING_POSTURE"):
-    """
-    分析MediaPipe姿态数据
-    landmarks: MediaPipe检测的33个关键点数据
-    mode: 分析模式 (SHOOTING_POSTURE, COMBAT_FIGHT, COMBAT_SCORING)
-    """
-    try:
-        # 提取关键点坐标和置信度
-        pose_data = []
-        for lm in landmarks:
-            pose_data.append({
-                "x": lm.get("x", 0),
-                "y": lm.get("y", 0),
-                "z": lm.get("z", 0),
-                "visibility": lm.get("visibility", 0)
-            })
-        
-        # 根据模式分析姿态
-        if mode.startswith("SHOOTING"):
-            result = engine.analyze_pose_shooting(pose_data)
-        else:
-            result = engine.analyze_pose_combat(pose_data)
-        
-        if result["success"]:
-            return {"result": result["data"]}
-        else:
-            return {"result": "姿态检测正常，请继续保持"}
-    except Exception as e:
-        return {"result": f"姿态分析完成"}
-
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}

@@ -1,0 +1,31 @@
+# --- 屏蔽本地环境的文件上传 ---
+# Python 环境与构建文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+venv/
+captp_env/
+
+# 如果本地已安装前端依赖，请屏蔽，构建阶段会重新执行 npm install
+node_modules/
+dist/
+
+# IDE 与本地测试秘钥文件
+.vscode/
+.idea/
+*.secret
+*.key
+*.pem
+test_keys*.py
+*.env
+
+# 系统临时文件
+.DS_Store
+Thumbs.db
+
+# 构建产物
+build/
+*.egg-info/

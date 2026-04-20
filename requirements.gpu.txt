@@ -1,0 +1,16 @@
+﻿fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+opencv-python>=4.10.0.84
+numpy>=1.26.4
+pydantic>=2.8.2
+python-dotenv>=1.0.1
+openai>=1.40.0
+ultralytics>=8.2.0
+mediapipe>=0.10.14
+# Install torch/torchvision matching your CUDA first, then:
+mmengine>=0.10.4
+mmcv>=2.1.0
+mmpose>=1.3.2
+mmaction2>=1.2.0
+

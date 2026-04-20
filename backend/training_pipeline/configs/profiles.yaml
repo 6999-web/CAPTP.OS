@@ -1,0 +1,14 @@
+profiles:
+  lite:
+    mediapipe_model_complexity: 0
+    mediapipe_frame_skip: 1
+    yolo_pose_model: yolov8n-pose.pt
+    notes: "Orange Pi profile with reduced load."
+  standard:
+    mediapipe_model_complexity: 1
+    mediapipe_frame_skip: 0
+    yolo_pose_model: yolov8n-pose.pt
+  high_precision:
+    mediapipe_model_complexity: 2
+    mediapipe_frame_skip: 0
+    yolo_pose_model: yolov8s-pose.pt

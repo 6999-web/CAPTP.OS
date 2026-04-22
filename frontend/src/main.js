@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+<<<<<<< HEAD
 import { createRouter, createWebHistory } from 'vue-router'
 
 import './style.css'
@@ -20,3 +21,9 @@ const router = createRouter({
 })
 
 createApp(App).use(router).mount('#app')
+=======
+import './style.css'
+import App from './App.vue'
+
+createApp(App).mount('#app')
+>>>>>>> origin/main

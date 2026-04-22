@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿version: '3.8'
 
 services:
@@ -38,14 +39,54 @@ services:
           devices:
             - capabilities: [gpu]
 
+=======
+# --- 智警实战综合训练平台 (CAPTP) Docker Compose 编排文件 ---
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: ./
+      dockerfile: ./backend/Dockerfile
+    container_name: captp-backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/captp
+      - REDIS_URL=redis://redis:6379/0
+      # 此处通过环境变量传递您已有的 NVIDIA 密钥 (若代码中有 os.environ.get)
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+    ports:
+      - "6063:8000"
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - captp-network
+
+  # 前端服务
+>>>>>>> origin/main
   frontend:
     build:
       context: ./
       dockerfile: ./frontend/Dockerfile
     container_name: captp-frontend
+<<<<<<< HEAD
     restart: unless-stopped
     ports:
       - "5173:80"
     depends_on:
       - backend-cpu
 
+=======
+    restart: always
+    ports:
+      - "6062:80"
+    depends_on:
+      - backend
+    networks:
+      - captp-network
+
+networks:
+  captp-network:
+    driver: bridge
+>>>>>>> origin/main

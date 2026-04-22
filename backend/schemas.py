@@ -42,6 +42,37 @@ class ShootingEvidence(BaseModel):
     confidence: float = 0.0
 
 
+class ShootingIssueEvidence(BaseModel):
+    frame_index: int = 0
+    timestamp: str | None = None
+    label: str = ""
+    confidence: float = 0.0
+    detail: str | None = None
+
+
+class ShootingPrimaryIssue(BaseModel):
+    issue_key: str
+    title: str
+    step_key: str
+    step_label_zh: str
+    trigger_reason: str
+    why_flagged: list[str] = Field(default_factory=list)
+    risk: str
+    improvement_suggestion: str
+    evidence: list[ShootingIssueEvidence] = Field(default_factory=list)
+
+
+class ShootingStepReport(BaseModel):
+    step_key: str
+    step_label_zh: str
+    status: Literal["pending", "current", "completed", "issue"]
+    detected_actions: list[str] = Field(default_factory=list)
+    missing_actions: list[str] = Field(default_factory=list)
+    issues: list[ShootingPrimaryIssue] = Field(default_factory=list)
+    evidence: list[ShootingEvidence] = Field(default_factory=list)
+    why_flagged: list[str] = Field(default_factory=list)
+
+
 class ShootingResult(BaseModel):
     posture_compliance: bool = False
     posture_score: float = 0.0
@@ -49,6 +80,9 @@ class ShootingResult(BaseModel):
     flow_order_ok: bool = True
     violations: list[Violation] = Field(default_factory=list)
     evidence: list[ShootingEvidence] = Field(default_factory=list)
+    ui_stage_label: str = "初次验枪"
+    step_reports: list[ShootingStepReport] = Field(default_factory=list)
+    primary_issues: list[ShootingPrimaryIssue] = Field(default_factory=list)
 
 
 class CombatActionItem(BaseModel):
@@ -81,12 +115,49 @@ class FatigueResult(BaseModel):
     reason: str
 
 
+class CombatReviewMetrics(BaseModel):
+    distance_score: float = 0.0
+    impact_score: float = 0.0
+    guard_open_score: float = 0.0
+    balance_break_score: float = 0.0
+    stability_score: float = 0.0
+    explosiveness_score: float = 0.0
+    reaction_lag_score: float = 0.0
+
+
+class CombatReviewCard(BaseModel):
+    card_id: str
+    frame_index: int = 0
+    timestamp: str = "00:00.00"
+    image_b64: str | None = None
+    action_code: str
+    action_zh: str
+    damage_zh: str
+    evade_failure_reason_zh: str
+    summary_zh: str
+    confidence: float = 0.0
+    attacker_id: int | None = None
+    defender_id: int | None = None
+    target_zh: str = "未判定"
+    metrics: CombatReviewMetrics = Field(default_factory=CombatReviewMetrics)
+
+
+class SupportedCombatAction(BaseModel):
+    action_code: str
+    action_zh: str
+    description_zh: str
+    typical_damage_zh: str
+    common_evade_failure_reasons_zh: list[str] = Field(default_factory=list)
+
+
 class CombatResult(BaseModel):
     actions: list[CombatActionItem] = Field(default_factory=list)
     quartets: list[CombatQuartet] = Field(default_factory=list)
     fatigue: FatigueResult = Field(default_factory=lambda: FatigueResult(level="low", score=0.0, reason="insufficient_motion_history"))
     hit_events: list[HitEvent] = Field(default_factory=list)
     stability: float = 0.0
+    review_cards: list[CombatReviewCard] = Field(default_factory=list)
+    supported_actions: list[SupportedCombatAction] = Field(default_factory=list)
 
 
 class MetaResult(BaseModel):
@@ -97,17 +168,55 @@ class MetaResult(BaseModel):
     fallback_used: bool = False
 
 
+class AttributionEvidence(BaseModel):
+    timestamp: str
+    details: str
+    step_key: str | None = None
+
+
+class EventSpot(BaseModel):
+    event_type: str
+    timestamp_seconds: float
+    timestamp: str
+    confidence: float = 0.0
+    details: str
+
+
+class WindowComparison(BaseModel):
+    minute_1: dict[str, float] = Field(default_factory=dict)
+    minute_3: dict[str, float] = Field(default_factory=dict)
+    changes: dict[str, float] = Field(default_factory=dict)
+
+
+class AttributionResult(BaseModel):
+    result: str = "Undetermined"
+    primary_reason: str = ""
+    evidence: AttributionEvidence | None = None
+    technical_feedback: str = ""
+    event_spots: list[EventSpot] = Field(default_factory=list)
+    window_comparison: WindowComparison = Field(default_factory=WindowComparison)
+    diagnoses: dict[str, Any] = Field(default_factory=dict)
+
+
 class AnalyzeResult(BaseModel):
     shooting: ShootingResult
     combat: CombatResult
     meta: MetaResult
     reasoning: str | None = None
+    attribution: AttributionResult | None = None
 
 
 class AnalyzeRequest(BaseModel):
     mode: AnalyzeMode = AnalyzeMode.combat_full
     source: AnalyzeSource = AnalyzeSource.image
     scene_cardinality: str = "multi_person"
+
+
+class RtspAnalyzeRequest(BaseModel):
+    url: str
+    mode: AnalyzeMode = AnalyzeMode.combat_full
+    frame_index: int = 0
+    fps: float = 12.0
 
 
 class TacticalMessage(BaseModel):

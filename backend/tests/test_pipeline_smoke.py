@@ -12,4 +12,8 @@ def test_pipeline_frame_smoke():
     out = p.analyze_frame(frame, mode=AnalyzeMode.combat_full, frame_index=0, fps=0.0)
     assert out.meta.device in {"cpu", "cuda"}
     assert out.shooting.flow_stage is not None
+    assert out.shooting.ui_stage_label
+    assert len(out.shooting.step_reports) == 5
+    assert out.combat.supported_actions
+    assert isinstance(out.combat.review_cards, list)
 

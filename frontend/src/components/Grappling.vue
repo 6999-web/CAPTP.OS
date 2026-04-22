@@ -1,7 +1,7 @@
-﻿<script setup>
-import { onBeforeUnmount, ref } from 'vue'
+<script setup>
+import { computed, onBeforeUnmount, ref } from 'vue'
 
-import { analyzeWithV1Fallback, analyzeWithV2 } from '../utils/api'
+import { analyzeLongVideoWithV2, analyzeRtspFrameWithV2, analyzeWithV1Fallback, analyzeWithV2 } from '../utils/api'
 import { settingsStore } from '../stores/settings'
 
 const fileInput = ref(null)
@@ -20,6 +20,17 @@ const mediaStream = ref(null)
 const canvasElement = ref(null)
 const sourceSettings = settingsStore.settings
 let recognitionInterval = null
+let rtspFrameCursor = 0
+
+const metricLabels = {
+  distance_score: '距离压缩',
+  impact_score: '打击强度',
+  guard_open_score: '护架暴露',
+  balance_break_score: '重心破坏',
+  stability_score: '自身稳定',
+  explosiveness_score: '爆发力',
+  reaction_lag_score: '反应滞后'
+}
 
 const revokePreview = () => {
   if (previewUrl.value) {
@@ -44,7 +55,17 @@ const onFileChange = (event) => {
 
 const startCamera = async () => {
   if (sourceSettings.sourceType === 'rtsp') {
-    alert('当前设置为 RTSP 视频流，请先在系统设置中确认 RTSP 地址。')
+    if (!sourceSettings.rtspUrl.trim()) {
+      alert('请先在系统设置中填写 RTSP 地址。')
+      return
+    }
+
+    cameraActive.value = true
+    capturedImage.value = null
+    feedback.value = ''
+    v2Result.value = null
+    rtspFrameCursor = 0
+    startContinuousRecognition()
     return
   }
 
@@ -88,14 +109,40 @@ const stopCamera = () => {
   cameraActive.value = false
 }
 
+const analyzeRtspFrame = async () => {
+  const { ok, data } = await analyzeRtspFrameWithV2({
+    rtspUrl: sourceSettings.rtspUrl.trim(),
+    legacyMode: mode.value,
+    frameIndex: rtspFrameCursor++,
+    fps: 12
+  })
+  if (!ok) {
+    throw new Error(data.detail || 'RTSP 分析失败')
+  }
+
+  v2Result.value = data.analysis
+  capturedImage.value = data.frame_b64 ? `data:image/jpeg;base64,${data.frame_b64}` : null
+  feedback.value = ''
+}
+
 const startContinuousRecognition = () => {
   if (recognitionInterval) {
     clearInterval(recognitionInterval)
   }
 
   recognitionInterval = setInterval(async () => {
-    if (!videoElement.value || !canvasElement.value || isAnalyzing.value || !cameraActive.value) return
+    if (isAnalyzing.value || !cameraActive.value) return
 
+    if (sourceSettings.sourceType === 'rtsp') {
+      try {
+        await analyzeRtspFrame()
+      } catch (error) {
+        feedback.value = `RTSP 识别失败: ${error.message}`
+      }
+      return
+    }
+
+    if (!videoElement.value || !canvasElement.value) return
     const video = videoElement.value
     if (video.readyState !== 4) return
 
@@ -135,9 +182,18 @@ const triggerAnalysis = async () => {
   v2Result.value = null
 
   try {
-    const v2 = await analyzeWithV2({ file: selectedFile.value, legacyMode: mode.value })
-    if (v2.ok) {
-      v2Result.value = v2.data
+    const primary = isVideo.value
+      ? await analyzeLongVideoWithV2({ file: selectedFile.value, legacyMode: mode.value })
+      : await analyzeWithV2({ file: selectedFile.value, legacyMode: mode.value })
+
+    if (primary.ok) {
+      v2Result.value = primary.data
+      return
+    }
+
+    const fallbackV2 = await analyzeWithV2({ file: selectedFile.value, legacyMode: mode.value })
+    if (fallbackV2.ok) {
+      v2Result.value = fallbackV2.data
       return
     }
 
@@ -154,8 +210,23 @@ const triggerAnalysis = async () => {
   }
 }
 
-const combat = () => v2Result.value?.combat
-const meta = () => v2Result.value?.meta
+const combat = computed(() => v2Result.value?.combat || null)
+const meta = computed(() => v2Result.value?.meta || null)
+const reviewCards = computed(() => combat.value?.review_cards || [])
+const supportedActions = computed(() => combat.value?.supported_actions || [])
+const actionCount = computed(() => combat.value?.actions?.length || 0)
+const hitCount = computed(() => combat.value?.hit_events?.length || 0)
+const highImpactCards = computed(() => reviewCards.value.filter((item) => item.damage_zh !== '未形成有效击中').length)
+
+const metricEntries = (metrics) => Object.entries(metricLabels).map(([key, label]) => ({
+  key,
+  label,
+  value: Number(metrics?.[key] || 0)
+}))
+
+const confidenceText = (value) => `${Math.round((Number(value) || 0) * 100)}%`
+const metricWidth = (value) => `${Math.round((Number(value) || 0) * 100)}%`
+const cardImage = (imageB64) => imageB64 ? `data:image/jpeg;base64,${imageB64}` : ''
 </script>
 
 <template>
@@ -174,27 +245,31 @@ const meta = () => v2Result.value?.meta
         <div class="upload-area" @click="fileInput.click()">
           <div v-if="!previewUrl && !capturedImage" class="placeholder">
             <div class="badge">SENSING</div>
-            <p>上传图片或视频，输出动作-效果-原因-建议四元组</p>
+            <p>上传图片或视频，输出中文复盘卡片与动作总表</p>
           </div>
           <img v-if="capturedImage" :src="capturedImage" alt="识别画面" class="preview-img" />
           <img v-else-if="previewUrl && !isVideo" :src="previewUrl" class="preview-img" />
           <video v-else-if="previewUrl && isVideo" :src="previewUrl" class="preview-video" autoplay loop muted playsinline></video>
-          <video v-if="cameraActive" ref="videoElement" autoplay playsinline class="preview-video"></video>
+          <video v-if="cameraActive && sourceSettings.sourceType === 'camera'" ref="videoElement" autoplay playsinline class="preview-video"></video>
           <canvas ref="canvasElement" style="display: none;"></canvas>
           <input type="file" ref="fileInput" @change="onFileChange" hidden accept="image/*,video/*" />
         </div>
 
         <div class="camera-btns" v-if="!selectedFile">
           <div class="mode-tip">当前视频源：{{ sourceSettings.sourceType === 'camera' ? '本地摄像头' : 'RTSP 视频流' }}</div>
-          <button v-if="!cameraActive" class="btn accent-btn" @click.stop="startCamera" :disabled="sourceSettings.sourceType !== 'camera'">开启摄像头</button>
-          <button v-else class="btn accent-btn" @click.stop="stopCamera">关闭摄像头</button>
+          <button v-if="!cameraActive" class="btn accent-btn" @click.stop="startCamera">
+            {{ sourceSettings.sourceType === 'camera' ? '开启摄像头' : '连接 RTSP' }}
+          </button>
+          <button v-else class="btn accent-btn" @click.stop="stopCamera">
+            {{ sourceSettings.sourceType === 'camera' ? '关闭摄像头' : '停止 RTSP' }}
+          </button>
         </div>
 
         <div class="mode-selector-panel">
           <div class="label">分析模式</div>
           <div class="btn-group">
-            <button :class="{active: mode === 'COMBAT_FIGHT'}" @click="mode = 'COMBAT_FIGHT'">动作识别</button>
-            <button :class="{active: mode === 'COMBAT_SCORING'}" @click="mode = 'COMBAT_SCORING'">全量分析</button>
+            <button :class="{ active: mode === 'COMBAT_FIGHT' }" @click="mode = 'COMBAT_FIGHT'">动作识别</button>
+            <button :class="{ active: mode === 'COMBAT_SCORING' }" @click="mode = 'COMBAT_SCORING'">全量分析</button>
           </div>
         </div>
 
@@ -207,54 +282,113 @@ const meta = () => v2Result.value?.meta
       </div>
 
       <div class="panel right-analytics scrollable">
-        <div class="panel-header">格斗四元组 / COMBAT QUARTETS</div>
+        <div class="panel-header">实战复盘面板 / REVIEW CARDS</div>
 
-        <template v-if="combat()">
-          <div class="report-info">人数 {{ meta()?.persons || 0 }} / 设备 {{ meta()?.device || '-' }} / 延迟 {{ meta()?.latency_ms?.toFixed?.(1) || 0 }}ms</div>
+        <template v-if="combat">
+          <div class="summary-strip">
+            <div class="summary-tile">
+              <span>复盘卡片</span>
+              <strong>{{ reviewCards.length }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>动作次数</span>
+              <strong>{{ actionCount }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>有效打击</span>
+              <strong>{{ highImpactCards }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>命中事件</span>
+              <strong>{{ hitCount }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>稳定性</span>
+              <strong>{{ (combat.stability || 0).toFixed(2) }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>延迟</span>
+              <strong>{{ meta?.latency_ms?.toFixed?.(1) || 0 }}ms</strong>
+            </div>
+          </div>
+
+          <div class="subtle-info">人数 {{ meta?.persons || 0 }} / 设备 {{ meta?.device || '-' }} / 体力 {{ combat.fatigue?.level || '-' }}</div>
 
           <div class="block">
-            <h3>动作识别</h3>
-            <ul v-if="combat().actions?.length">
-              <li v-for="item in combat().actions" :key="item.frame_index + '-' + item.action">
-                帧 {{ item.frame_index }} - {{ item.action }} ({{ item.confidence.toFixed(2) }})
-              </li>
-            </ul>
-            <div v-else>未检测到明显格斗动作。</div>
+            <div class="block-title-row">
+              <h3>本次识别全量结果</h3>
+              <span class="block-tag">按时间顺序输出</span>
+            </div>
+
+            <div v-if="reviewCards.length" class="review-card-list">
+              <article v-for="card in reviewCards" :key="card.card_id" class="review-card">
+                <div class="card-media">
+                  <img v-if="card.image_b64" :src="cardImage(card.image_b64)" :alt="card.action_zh" class="review-shot" />
+                  <div v-else class="shot-placeholder">暂无截帧</div>
+                  <div class="time-chip">{{ card.timestamp }}</div>
+                </div>
+
+                <div class="card-content">
+                  <div class="card-head">
+                    <div>
+                      <div class="card-title">{{ card.action_zh }}</div>
+                      <div class="card-subtitle">{{ card.summary_zh }}</div>
+                    </div>
+                    <div class="confidence-pill">{{ confidenceText(card.confidence) }}</div>
+                  </div>
+
+                  <div class="fact-grid">
+                    <div class="fact-box">
+                      <span>造成伤害</span>
+                      <strong>{{ card.damage_zh }}</strong>
+                    </div>
+                    <div class="fact-box">
+                      <span>未躲闪原因</span>
+                      <strong>{{ card.evade_failure_reason_zh }}</strong>
+                    </div>
+                    <div class="fact-box">
+                      <span>攻击对象</span>
+                      <strong>{{ card.target_zh }}</strong>
+                    </div>
+                    <div class="fact-box">
+                      <span>对抗编号</span>
+                      <strong>A{{ card.attacker_id ?? '-' }} / B{{ card.defender_id ?? '-' }}</strong>
+                    </div>
+                  </div>
+
+                  <div class="metrics-panel">
+                    <div v-for="metric in metricEntries(card.metrics)" :key="card.card_id + metric.key" class="metric-row">
+                      <span>{{ metric.label }}</span>
+                      <div class="metric-bar">
+                        <div class="metric-fill" :style="{ width: metricWidth(metric.value) }"></div>
+                      </div>
+                      <b>{{ metric.value.toFixed(2) }}</b>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-inline">当前样本未形成可复盘的格斗卡片。</div>
           </div>
 
           <div class="block">
-            <h3>四元组列表</h3>
-            <table class="qt-table" v-if="combat().quartets?.length">
-              <thead>
-                <tr><th>动作</th><th>效果</th><th>原因</th><th>建议</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="(q, idx) in combat().quartets" :key="idx">
-                  <td>{{ q.action }}</td>
-                  <td>{{ q.effect }}</td>
-                  <td>{{ q.reason }}</td>
-                  <td>{{ q.suggestion }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-else>暂无四元组结果。</div>
-          </div>
+            <div class="block-title-row">
+              <h3>系统支持动作总表</h3>
+              <span class="block-tag">固定中文动作库</span>
+            </div>
 
-          <div class="block">
-            <h3>命中事件</h3>
-            <ul v-if="combat().hit_events?.length">
-              <li v-for="(h, idx) in combat().hit_events" :key="idx">
-                A{{ h.attacker_id }} -> B{{ h.defender_id }}: {{ h.target }} ({{ h.confidence.toFixed(2) }})
-              </li>
-            </ul>
-            <div v-else>未识别到明确命中事件。</div>
-          </div>
-
-          <div class="block">
-            <h3>体力与稳定性</h3>
-            <div>体力等级: {{ combat().fatigue.level }} ({{ combat().fatigue.score.toFixed(2) }})</div>
-            <div>体力原因: {{ combat().fatigue.reason }}</div>
-            <div>稳定性: {{ combat().stability.toFixed(2) }}</div>
+            <div class="support-grid" v-if="supportedActions.length">
+              <article v-for="item in supportedActions" :key="item.action_code" class="support-card">
+                <div class="support-title">{{ item.action_zh }}</div>
+                <div class="support-code">{{ item.action_code }}</div>
+                <p>{{ item.description_zh }}</p>
+                <div class="support-line"><span>典型效果</span><strong>{{ item.typical_damage_zh }}</strong></div>
+                <div class="reason-tags">
+                  <span v-for="reason in item.common_evade_failure_reasons_zh" :key="item.action_code + reason">{{ reason }}</span>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-inline">当前未返回动作总表。</div>
           </div>
         </template>
 
@@ -264,7 +398,7 @@ const meta = () => v2Result.value?.meta
           <div class="dot"></div><div class="dot"></div><div class="dot"></div>
         </div>
 
-        <div v-else class="empty-notif">等待输入视频/图像进行格斗分析...</div>
+        <div v-else class="empty-notif">等待输入视频或图像进行格斗分析...</div>
       </div>
     </div>
   </div>
@@ -291,22 +425,62 @@ const meta = () => v2Result.value?.meta
 .placeholder p { font-size: 13px; color: #3d5875; }
 .preview-img, .preview-video { width: 100%; height: 100%; object-fit: contain; }
 .controls .accent-btn { width: 100%; border-radius: 2px; }
-.right-analytics { height: 100%; min-height: 420px; }
+.right-analytics { height: 100%; min-height: 420px; background: radial-gradient(circle at top right, rgba(32, 215, 255, 0.08), transparent 24%), linear-gradient(180deg, rgba(8, 18, 29, 0.98), rgba(7, 13, 24, 0.95)); }
 .scrollable { overflow-y: auto; }
 .empty-notif { height: 100%; display: flex; align-items: center; justify-content: center; color: #2d333b; font-size: 14px; font-style: italic; text-align: center; padding: 40px; }
-.report-info { font-size: 12px; color: #8aa5c2; margin-bottom: 10px; }
-.block { margin-top: 12px; border-top: 1px dashed #1a3a5f; padding-top: 10px; }
-.block h3 { margin: 0 0 8px; font-size: 13px; color: var(--primary); }
-.block ul { margin: 0; padding-left: 18px; }
-.block li { margin: 4px 0; color: #d1dcf0; font-size: 13px; }
-.qt-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.qt-table th, .qt-table td { border: 1px solid #1a3a5f; padding: 6px; text-align: left; vertical-align: top; color: #d1dcf0; }
+.summary-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.summary-tile { border: 1px solid #1a3a5f; background: rgba(9, 17, 29, 0.92); padding: 10px; border-radius: 8px; }
+.summary-tile span { display: block; color: #7895b5; font-size: 11px; margin-bottom: 6px; }
+.summary-tile strong { color: #f3fbff; font-size: 17px; }
+.subtle-info { font-size: 12px; color: #89a4c4; margin-bottom: 8px; }
+.block { margin-top: 12px; border-top: 1px dashed #1a3a5f; padding-top: 14px; }
+.block-title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.block h3 { margin: 0; font-size: 14px; color: var(--primary); }
+.block-tag { border: 1px solid rgba(0, 229, 255, 0.22); color: #87bfd8; font-size: 11px; border-radius: 999px; padding: 3px 8px; }
+.review-card-list { display: flex; flex-direction: column; gap: 14px; }
+.review-card { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 14px; border: 1px solid rgba(32, 215, 255, 0.18); background: rgba(9, 17, 28, 0.95); border-radius: 12px; overflow: hidden; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28); }
+.card-media { position: relative; min-height: 188px; background: linear-gradient(180deg, rgba(8, 17, 28, 0.7), rgba(3, 7, 12, 0.95)); display: flex; align-items: center; justify-content: center; }
+.review-shot { width: 100%; height: 100%; object-fit: cover; }
+.shot-placeholder { color: #57718c; font-size: 13px; }
+.time-chip { position: absolute; top: 10px; left: 10px; background: rgba(5, 12, 22, 0.88); color: #7fe9ff; border: 1px solid rgba(0, 229, 255, 0.22); border-radius: 999px; padding: 4px 8px; font-size: 11px; }
+.card-content { padding: 14px 16px 16px; }
+.card-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.card-title { font-size: 18px; color: #f1f9ff; font-weight: 800; }
+.card-subtitle { margin-top: 4px; font-size: 13px; line-height: 1.6; color: #9ec0dd; }
+.confidence-pill { white-space: nowrap; color: #8ff3d9; border: 1px solid rgba(143, 243, 217, 0.32); padding: 5px 10px; border-radius: 999px; font-size: 12px; height: fit-content; }
+.fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.fact-box { border: 1px solid #1b3a59; background: rgba(5, 12, 22, 0.85); border-radius: 8px; padding: 10px; }
+.fact-box span { display: block; color: #7290b2; font-size: 11px; margin-bottom: 4px; }
+.fact-box strong { color: #eef8ff; font-size: 14px; line-height: 1.5; }
+.metrics-panel { display: grid; gap: 8px; }
+.metric-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) 40px; gap: 10px; align-items: center; font-size: 12px; color: #90a8c2; }
+.metric-bar { height: 8px; background: rgba(18, 37, 58, 0.9); border-radius: 999px; overflow: hidden; }
+.metric-fill { height: 100%; background: linear-gradient(90deg, #2be3ff, #46ffa2); border-radius: inherit; }
+.metric-row b { color: #dff8ff; font-size: 12px; text-align: right; }
+.support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.support-card { border: 1px solid #1b3a59; background: rgba(9, 17, 28, 0.92); border-radius: 10px; padding: 14px; }
+.support-title { color: #eef8ff; font-size: 16px; font-weight: 800; }
+.support-code { color: #6ca6bf; font-size: 11px; margin-top: 3px; text-transform: uppercase; letter-spacing: 1px; }
+.support-card p { color: #98b8d5; font-size: 13px; line-height: 1.7; margin: 10px 0 12px; }
+.support-line { display: grid; gap: 4px; margin-bottom: 10px; }
+.support-line span { color: #7392b4; font-size: 11px; }
+.support-line strong { color: #eff8ff; font-size: 13px; line-height: 1.6; }
+.reason-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.reason-tags span { border: 1px solid rgba(0, 229, 255, 0.2); background: rgba(0, 229, 255, 0.08); color: #9ae4f3; border-radius: 999px; padding: 4px 8px; font-size: 11px; }
+.empty-inline { color: #6d86a3; font-size: 12px; padding: 6px 0; }
 .text-content { font-size: 15px; color: #d1dcf0; line-height: 1.8; white-space: pre-wrap; font-family: 'PingFang SC', sans-serif; }
 .dna-spinner { display: flex; justify-content: center; align-items: center; height: 300px; gap: 10px; }
 .dna-spinner .dot { width: 12px; height: 12px; background: var(--primary); border-radius: 50%; animation: orbit 1s infinite alternate; }
 .dna-spinner .dot:nth-child(2) { animation-delay: 0.2s; }
 .dna-spinner .dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes orbit { from { transform: scale(0.5); opacity: 0.2; transform: translateY(-20px); } to { transform: scale(1.2); opacity: 1; transform: translateY(20px); } }
-@media (max-width: 1080px) { .grid-layout { grid-template-columns: 1fr; } }
+@keyframes orbit { from { transform: scale(0.5) translateY(-20px); opacity: 0.2; } to { transform: scale(1.2) translateY(20px); opacity: 1; } }
+@media (max-width: 1400px) {
+  .summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1080px) {
+  .grid-layout { grid-template-columns: 1fr; }
+  .review-card { grid-template-columns: 1fr; }
+  .support-grid, .fact-grid, .summary-strip { grid-template-columns: 1fr; }
+  .card-media { min-height: 220px; }
+}
 </style>
-

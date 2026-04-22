@@ -4,6 +4,7 @@ import numpy as np
 
 from cv.shooting_rules import EventType, ShootingFlowStateMachine, ShootingRulesAnalyzer
 from cv.types import FramePoseResult, FrameWeaponResult, PosePerson, WeaponDetection
+from services.shooting_reporting import build_step_reports
 
 
 def _person() -> PosePerson:
@@ -55,4 +56,21 @@ def test_muzzle_critical_alarm_branch_exists():
     out = rules.evaluate_posture(pose, weapon, frame_index=1)
     severities = {v.severity for v in out.violations}
     assert severities.intersection({"high", "high_critical"})
+
+
+def test_violation_translation_returns_chinese_issue_cards():
+    rules = ShootingRulesAnalyzer()
+    pose = FramePoseResult(persons=[_person()], hands=[])
+    weapon = FrameWeaponResult(weapons=[WeaponDetection(cls_name='pistol', bbox=(130, 90, 170, 110), score=0.8, muzzle_direction='horizontal')])
+    out = rules.evaluate_posture(pose, weapon, frame_index=3)
+    _, reports, issues = build_step_reports(
+        flow_stage=EventType.prepare_and_fire.value,
+        flow_order_ok=True,
+        violations=out.violations,
+        evidence=[],
+        fps=12.0,
+    )
+
+    assert any("双臂" in item.title or "手臂" in item.title for item in issues)
+    assert len(reports) == 5
 

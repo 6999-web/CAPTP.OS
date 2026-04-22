@@ -218,6 +218,47 @@ const actionCount = computed(() => combat.value?.actions?.length || 0)
 const hitCount = computed(() => combat.value?.hit_events?.length || 0)
 const highImpactCards = computed(() => reviewCards.value.filter((item) => item.damage_zh !== '未形成有效击中').length)
 
+const pickTopLabel = (items, fallback = '暂无明确结论') => {
+  if (!items.length) return fallback
+
+  const counts = new Map()
+  items.forEach((item) => {
+    const key = item || fallback
+    counts.set(key, (counts.get(key) || 0) + 1)
+  })
+
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || fallback
+}
+
+const overallSummary = computed(() => {
+  const cards = reviewCards.value
+  const topAction = pickTopLabel(cards.map((item) => item.action_zh).filter(Boolean), '暂未识别到明确动作')
+  const topDamage = pickTopLabel(cards.map((item) => item.damage_zh).filter(Boolean), '未形成明确击中结果')
+  const topReason = pickTopLabel(cards.map((item) => item.evade_failure_reason_zh).filter(Boolean), '画面证据不足，暂时无法稳定判断')
+  const stability = Number(combat.value?.stability || 0)
+  const fatigueLevel = combat.value?.fatigue?.level || '未评估'
+  const overviewText = cards.length
+    ? `本次样本共提取 ${cards.length} 条可复盘结果，以“${topAction}”为主，主要表现为“${topDamage}”。`
+    : '本次样本尚未形成稳定的实战复盘卡片，当前以系统汇总指标为主。'
+  const rhythmText = highImpactCards.value
+    ? `有效击打 ${highImpactCards.value} 次，当前对抗节奏已经出现明确的攻防转换。`
+    : '当前更偏向试探或距离拉扯阶段，尚未形成稳定有效击打。'
+  const riskText = stability < 0.45
+    ? '整体稳定性偏低，后续应优先关注重心回收、脚步调整和攻击后的自我保护。'
+    : '整体稳定性尚可，后续应继续关注连续对抗后的节奏变化与防守空当。'
+
+  return {
+    overviewText,
+    topAction,
+    topDamage,
+    topReason,
+    fatigueLevel,
+    stability,
+    rhythmText,
+    riskText
+  }
+})
+
 const metricEntries = (metrics) => Object.entries(metricLabels).map(([key, label]) => ({
   key,
   label,
@@ -318,6 +359,32 @@ const cardImage = (imageB64) => imageB64 ? `data:image/jpeg;base64,${imageB64}` 
             <div class="block-title-row">
               <h3>本次识别全量结果</h3>
               <span class="block-tag">按时间顺序输出</span>
+            </div>
+
+            <div class="overview-panel">
+              <div class="overview-lead">{{ overallSummary.overviewText }}</div>
+              <div class="overview-grid">
+                <div class="overview-box">
+                  <span>主要动作</span>
+                  <strong>{{ overallSummary.topAction }}</strong>
+                </div>
+                <div class="overview-box">
+                  <span>主要结果</span>
+                  <strong>{{ overallSummary.topDamage }}</strong>
+                </div>
+                <div class="overview-box">
+                  <span>主要原因</span>
+                  <strong>{{ overallSummary.topReason }}</strong>
+                </div>
+                <div class="overview-box">
+                  <span>体力 / 稳定性</span>
+                  <strong>{{ overallSummary.fatigueLevel }} / {{ overallSummary.stability.toFixed(2) }}</strong>
+                </div>
+              </div>
+              <div class="overview-notes">
+                <p>{{ overallSummary.rhythmText }}</p>
+                <p>{{ overallSummary.riskText }}</p>
+              </div>
             </div>
 
             <div v-if="reviewCards.length" class="review-card-list">
@@ -437,6 +504,14 @@ const cardImage = (imageB64) => imageB64 ? `data:image/jpeg;base64,${imageB64}` 
 .block-title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
 .block h3 { margin: 0; font-size: 14px; color: var(--primary); }
 .block-tag { border: 1px solid rgba(0, 229, 255, 0.22); color: #87bfd8; font-size: 11px; border-radius: 999px; padding: 3px 8px; }
+.overview-panel { border: 1px solid rgba(32, 215, 255, 0.18); background: linear-gradient(180deg, rgba(10, 21, 34, 0.96), rgba(6, 13, 23, 0.92)); border-radius: 12px; padding: 16px; margin-bottom: 14px; box-shadow: 0 16px 32px rgba(0, 0, 0, 0.22); }
+.overview-lead { color: #eef8ff; font-size: 14px; line-height: 1.8; margin-bottom: 14px; }
+.overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.overview-box { border: 1px solid #1b3a59; background: rgba(5, 12, 22, 0.8); border-radius: 10px; padding: 12px; }
+.overview-box span { display: block; color: #7290b2; font-size: 11px; margin-bottom: 6px; }
+.overview-box strong { color: #f4fbff; font-size: 14px; line-height: 1.6; }
+.overview-notes { display: grid; gap: 8px; }
+.overview-notes p { margin: 0; color: #9ec0dd; font-size: 13px; line-height: 1.7; }
 .review-card-list { display: flex; flex-direction: column; gap: 14px; }
 .review-card { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 14px; border: 1px solid rgba(32, 215, 255, 0.18); background: rgba(9, 17, 28, 0.95); border-radius: 12px; overflow: hidden; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28); }
 .card-media { position: relative; min-height: 188px; background: linear-gradient(180deg, rgba(8, 17, 28, 0.7), rgba(3, 7, 12, 0.95)); display: flex; align-items: center; justify-content: center; }
@@ -480,7 +555,7 @@ const cardImage = (imageB64) => imageB64 ? `data:image/jpeg;base64,${imageB64}` 
 @media (max-width: 1080px) {
   .grid-layout { grid-template-columns: 1fr; }
   .review-card { grid-template-columns: 1fr; }
-  .support-grid, .fact-grid, .summary-strip { grid-template-columns: 1fr; }
+  .support-grid, .fact-grid, .summary-strip, .overview-grid { grid-template-columns: 1fr; }
   .card-media { min-height: 220px; }
 }
 </style>

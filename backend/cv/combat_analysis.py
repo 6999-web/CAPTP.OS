@@ -9,44 +9,62 @@ from schemas import CombatActionItem, CombatQuartet, CombatReviewCard, CombatRev
 from cv.types import FramePoseResult, PosePerson
 
 
+EVADE_REASONS = [
+    "距离来不及拉开",
+    "护架打开，头部/躯干暴露",
+    "重心滞后，无法及时撤步",
+    "连续对抗后反应下降",
+    "被假动作或上一步动作牵制",
+    "画面证据不足，无法稳定判断",
+]
+DEFAULT_EVADE_REASON = "画面证据不足，无法稳定判断"
+
+DAMAGE_RESULTS = [
+    "未形成有效击中",
+    "击中头部",
+    "击中躯干",
+    "形成压制，迫使对手后撤",
+    "击中同时自身失衡风险上升",
+]
+
 ACTION_CATALOG = {
     "straight_punch": {
         "action_zh": "直拳",
-        "description_zh": "直线出拳，强调手臂伸展与中轴压迫。",
-        "typical_damage_zh": "击中头部或躯干，形成直接打击。",
-        "common_evade_failure_reasons_zh": ["距离来不及拉开", "护架打开，头部/躯干暴露", "被假动作或上一步动作牵制"],
-        "suggestion_zh": "保持下巴内收，命中后快速回收拳路。",
+        "description_zh": "沿直线快速出拳，强调手臂伸展与中轴压迫。",
+        "typical_damage_zh": "常见为击中头部或躯干，形成直接打击。",
+        "common_evade_failure_reasons_zh": [EVADE_REASONS[0], EVADE_REASONS[1], EVADE_REASONS[4]],
+        "suggestion_zh": "命中后快速回收护架，避免反击空档。",
     },
     "hook_punch": {
         "action_zh": "勾拳",
-        "description_zh": "借助髋肩旋转完成弧线打击，适合侧向切入。",
-        "typical_damage_zh": "容易形成头部侧向命中或压迫护架。",
-        "common_evade_failure_reasons_zh": ["护架打开，头部/躯干暴露", "重心滞后，无法及时撤步", "被假动作或上一步动作牵制"],
-        "suggestion_zh": "先稳住支撑脚，再做髋肩联动。",
+        "description_zh": "利用躯干旋转与肩部联动，完成弧线打击。",
+        "typical_damage_zh": "更容易形成头部侧向命中或压制护架。",
+        "common_evade_failure_reasons_zh": [EVADE_REASONS[1], EVADE_REASONS[2], EVADE_REASONS[4]],
+        "suggestion_zh": "先稳住支撑脚，再发力转髋，减少失衡。",
     },
     "kick": {
         "action_zh": "踢击",
-        "description_zh": "下肢提膝转髋完成中远距离打击。",
-        "typical_damage_zh": "击中躯干或形成明显压制。",
-        "common_evade_failure_reasons_zh": ["距离来不及拉开", "重心滞后，无法及时撤步", "连续对抗后反应下降"],
-        "suggestion_zh": "抬膝后保持上肢护架，不让支撑腿失稳。",
+        "description_zh": "抬膝与转髋发力的中远距离打击动作。",
+        "typical_damage_zh": "常见为击中躯干，或形成明显压制。",
+        "common_evade_failure_reasons_zh": [EVADE_REASONS[0], EVADE_REASONS[2], EVADE_REASONS[3]],
+        "suggestion_zh": "出腿后及时回收并恢复护架与重心。",
     },
     "block": {
         "action_zh": "格挡",
-        "description_zh": "使用前臂或护架吸收来袭力量。",
-        "typical_damage_zh": "通常不形成有效击中，但可造成压制节奏。",
-        "common_evade_failure_reasons_zh": ["被假动作或上一步动作牵制", "连续对抗后反应下降", "画面证据不足，无法稳定判断"],
-        "suggestion_zh": "缩短防守弧线，避免护架打开。",
+        "description_zh": "用前臂和护架吸收来袭力量，降低受击概率。",
+        "typical_damage_zh": "通常不形成有效击中，但可打断对抗节奏。",
+        "common_evade_failure_reasons_zh": [EVADE_REASONS[4], EVADE_REASONS[3], EVADE_REASONS[5]],
+        "suggestion_zh": "缩短防守弧线，避免护架被持续拉开。",
     },
     "dodge": {
         "action_zh": "闪躲",
-        "description_zh": "通过头部或躯干位移降低被命中概率。",
-        "typical_damage_zh": "通常不形成有效击中，更多体现为化解威胁。",
-        "common_evade_failure_reasons_zh": ["重心滞后，无法及时撤步", "连续对抗后反应下降", "画面证据不足，无法稳定判断"],
-        "suggestion_zh": "加大头部位移幅度并配合步法撤离。",
+        "description_zh": "通过头部与躯干位移降低被击中概率。",
+        "typical_damage_zh": "通常不形成有效击中，更多用于化解威胁。",
+        "common_evade_failure_reasons_zh": [EVADE_REASONS[2], EVADE_REASONS[3], EVADE_REASONS[5]],
+        "suggestion_zh": "位移要配合脚步与重心转移，避免二次受击。",
     },
 }
-DEFAULT_EVADE_REASON = "画面证据不足，无法稳定判断"
+
 TARGET_ZH_MAP = {"head": "头部", "body": "躯干"}
 
 
@@ -109,11 +127,16 @@ class CombatAnalyzer:
         for action in actions:
             hit = next((item for item in hits if item.frame_index == action.frame_index), None)
             ts = action.frame_index / max(1.0, fps)
+            metrics = CombatReviewMetrics(
+                impact_score=float(action.confidence) + (0.2 if hit is not None else 0.0),
+                reaction_lag_score=0.75 if fatigue.get("level") == "high" else 0.45 if fatigue.get("level") == "medium" else 0.2,
+            )
+            reason = self._evade_failure_reason(metrics, action.action, hit, fatigue)
             quartets.append(
                 CombatQuartet(
                     action=self._action_zh(action.action),
-                    effect=self._damage_zh(hit, fatigue["level"] == "high", action.confidence),
-                    reason=self._quartet_reason_zh(action.action, hit, fatigue),
+                    effect=self._damage_zh(hit, fatigue.get("level") == "high", action.confidence),
+                    reason=reason,
                     suggestion=self._suggestion_zh(action.action),
                     confidence=action.confidence,
                     timestamp_range=(max(0.0, ts - 0.2), ts + 0.2),
@@ -152,6 +175,7 @@ class CombatAnalyzer:
             damage_zh = self._damage_zh(hit, metrics.balance_break_score > 0.7, action.confidence)
             evade_failure_reason_zh = self._evade_failure_reason(metrics, action.action, hit, fatigue)
             timestamp = self._format_timestamp(action.frame_index, fps)
+            target_zh = TARGET_ZH_MAP.get(hit.target, "未判定") if hit is not None else "未判定"
 
             cards.append(
                 CombatReviewCard(
@@ -163,11 +187,11 @@ class CombatAnalyzer:
                     action_zh=action_zh,
                     damage_zh=damage_zh,
                     evade_failure_reason_zh=evade_failure_reason_zh,
-                    summary_zh=f"{timestamp}，{action_zh}：{damage_zh}；未躲闪原因：{evade_failure_reason_zh}",
+                    summary_zh=f"{timestamp}，{action_zh}，{damage_zh}；未躲闪原因：{evade_failure_reason_zh}",
                     confidence=float(action.confidence),
                     attacker_id=attacker.person_id if attacker is not None else action.actor_id,
                     defender_id=defender.person_id if defender is not None else (hit.defender_id if hit is not None else None),
-                    target_zh=TARGET_ZH_MAP.get(hit.target, "未判定") if hit is not None else "未判定",
+                    target_zh=target_zh,
                     metrics=metrics,
                 )
             )
@@ -205,7 +229,7 @@ class CombatAnalyzer:
                 balance_break_score=1.0 - stability_score,
                 stability_score=stability_score,
                 explosiveness_score=explosiveness_score,
-                reaction_lag_score=0.35 if fatigue["level"] == "high" else 0.0,
+                reaction_lag_score=0.35 if fatigue.get("level") == "high" else 0.0,
             )
 
         defender_head = defender.keypoints_xy[0]
@@ -216,7 +240,7 @@ class CombatAnalyzer:
         defender_stability = self._stability_for_person(defender)
         previous_defender = self._resolve_person_by_id(previous_pose, defender.person_id) or defender
         previous_guard_open = self._guard_open_score(previous_defender)
-        reaction_lag_base = 0.75 if fatigue["level"] == "high" else 0.45 if fatigue["level"] == "medium" else 0.2
+        reaction_lag_base = 0.75 if fatigue.get("level") == "high" else 0.45 if fatigue.get("level") == "medium" else 0.2
         reaction_lag_score = self._clip(reaction_lag_base + max(0.0, guard_open_score - previous_guard_open))
         balance_break_score = self._clip((1.0 - defender_stability) * 0.8 + max(0.0, distance_score - 0.35) * 0.4)
 
@@ -266,14 +290,14 @@ class CombatAnalyzer:
 
     def _damage_zh(self, hit: HitEvent | None, unstable: bool, confidence: float) -> str:
         if hit is not None and unstable:
-            return "击中同时自身失衡风险上升"
+            return DAMAGE_RESULTS[4]
         if hit is not None and hit.target == "head":
-            return "击中头部"
+            return DAMAGE_RESULTS[1]
         if hit is not None and hit.target == "body":
-            return "击中躯干"
+            return DAMAGE_RESULTS[2]
         if confidence >= 0.66:
-            return "形成压制，迫使对手后撤"
-        return "未形成有效击中"
+            return DAMAGE_RESULTS[3]
+        return DAMAGE_RESULTS[0]
 
     def _evade_failure_reason(
         self,
@@ -285,31 +309,21 @@ class CombatAnalyzer:
         if hit is None and metrics.impact_score < 0.55:
             return DEFAULT_EVADE_REASON
         if metrics.guard_open_score >= 0.62:
-            return "护架打开，头部/躯干暴露"
+            return EVADE_REASONS[1]
         if metrics.balance_break_score >= 0.58:
-            return "重心滞后，无法及时撤步"
-        if fatigue["level"] == "high" or metrics.reaction_lag_score >= 0.72:
-            return "连续对抗后反应下降"
+            return EVADE_REASONS[2]
+        if fatigue.get("level") == "high" or metrics.reaction_lag_score >= 0.72:
+            return EVADE_REASONS[3]
         if metrics.distance_score >= 0.68:
-            return "距离来不及拉开"
+            return EVADE_REASONS[0]
         if action_code in {"hook_punch", "kick", "block"} and metrics.impact_score >= 0.58:
-            return "被假动作或上一步动作牵制"
+            return EVADE_REASONS[4]
         return DEFAULT_EVADE_REASON
-
-    def _quartet_reason_zh(self, action_code: str, hit: HitEvent | None, fatigue: dict) -> str:
-        meta = ACTION_CATALOG.get(action_code)
-        if meta is None:
-            return DEFAULT_EVADE_REASON
-        if hit is not None:
-            return f"{meta['action_zh']}进入有效打击路径，对手未能及时修正护架。"
-        if fatigue["level"] == "high":
-            return f"{meta['action_zh']}阶段节奏持续施压，对手反应速度下降。"
-        return f"{meta['action_zh']}形成节奏压制，但命中证据有限。"
 
     def _suggestion_zh(self, action_code: str) -> str:
         meta = ACTION_CATALOG.get(action_code)
         if meta is None:
-            return "保持基础站姿稳定，继续补充有效证据。"
+            return "保持基础站姿稳定，持续补充有效证据。"
         return meta["suggestion_zh"]
 
     def _action_zh(self, action_code: str) -> str:

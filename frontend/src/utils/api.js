@@ -1,4 +1,4 @@
-const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://101.33.210.169:6063'
 
 export const API_BASE_URL = configuredBaseUrl.replace(/\/$/, '')
 export const WS_BASE_URL = API_BASE_URL.replace(/^http/i, 'ws')

@@ -39,6 +39,7 @@ backend_server*.err
 vision_response*.txt
 tactical_chat_response.txt
 stream_error.txt
+test_logs.txt
 # MinIO / storage data (if any)
 storage/
 # Other sensitive files

@@ -1,2 +1,0 @@
-INFO:     127.0.0.1:55130 - "GET /api/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55131 - "GET /api/v2/reference-image HTTP/1.1" 200 OK

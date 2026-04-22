@@ -18,6 +18,6 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && python3 -m pip instal
 COPY backend /app/backend
 WORKDIR /app/backend
 
-EXPOSE 8000
-CMD ["python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 6063
+CMD ["python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "6063"]
 

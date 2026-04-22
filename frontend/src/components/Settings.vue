@@ -54,7 +54,7 @@ const saveSettings = () => {
   settingsStore.setSourceType(settings.sourceType)
   settingsStore.setCameraDeviceId(settings.cameraDeviceId)
   settingsStore.setRtspUrl(settings.rtspUrl.trim())
-  savedTip.value = '设置已保存，射击评估与格斗评分页面将同步使用。'
+  savedTip.value = '设置已保存，射击评估与格斗评估页面会同步使用。'
   window.setTimeout(() => {
     savedTip.value = ''
   }, 2000)
@@ -69,8 +69,8 @@ onMounted(() => {
   <div class="settings-page">
     <div class="page-head row">
       <div>
-        <h1>? 系统设置中心 / SETTINGS HUB</h1>
-        <p>统一配置视频源设备与 RTSP 流地址，供射击评估和格斗评分模块复用。</p>
+        <h1>系统设置中心 / SETTINGS HUB</h1>
+        <p>统一配置视频源设备与 RTSP 地址，供射击评估和格斗评估模块复用。</p>
       </div>
     </div>
 
@@ -102,7 +102,7 @@ onMounted(() => {
       </section>
 
       <section class="panel">
-        <div class="panel-title">视频源设备 / CAMERA DEVICE</div>
+        <div class="panel-title">摄像头设备 / CAMERA DEVICE</div>
         <div class="device-row">
           <select
             class="select"
@@ -121,7 +121,7 @@ onMounted(() => {
       </section>
 
       <section class="panel">
-        <div class="panel-title">RTSP 视频流 / RTSP STREAM</div>
+        <div class="panel-title">RTSP 地址 / RTSP STREAM</div>
         <input
           class="input"
           type="text"
@@ -129,7 +129,7 @@ onMounted(() => {
           :value="settings.rtspUrl"
           @input="settingsStore.setRtspUrl($event.target.value)"
         >
-        <p class="tip">当源模式为 RTSP 时，将优先使用该地址作为业务视频源配置。</p>
+        <p class="tip">当视频源模式为 RTSP 时，射击与格斗模块会通过后端抓帧并实时分析该流。</p>
       </section>
 
       <section class="panel save-panel">

@@ -1,10 +1,14 @@
+import os
 import requests, json
 
-BASE_URL = 'http://127.0.0.1:8000'
+BASE_URL = 'http://101.33.210.169:6063'
 image_path = r'C:\\Users\\xxzx-admin\\Desktop\\img_v3_0210f_8c427f1f-68a7-43ba-9106-c2b8db3be4ag.jpg'
 
 def test_image():
     try:
+        if not os.path.exists(image_path):
+            print('Image file not found, skipping image test')
+            return
         with open(image_path, 'rb') as f:
             files = {'file': ('target.jpg', f, 'image/jpeg')}
             data = {'mode': 'SHOOTING_TARGET'}

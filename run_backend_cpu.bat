@@ -7,5 +7,5 @@ if not exist "%~dp0captp_env\Scripts\activate.bat" (
 call "%~dp0captp_env\Scripts\activate.bat"
 cd /d "%~dp0backend"
 set CAPTP_RUNTIME_PROFILE=cpu
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+uvicorn main:app --reload --host 101.33.210.169 --port 6063
 

@@ -18,7 +18,23 @@ class VideoInputService:
             raise ValueError("Invalid image input")
         return frame
 
+    def capture_rtsp_frame(self, url: str) -> np.ndarray:
+        cap = cv2.VideoCapture(url)
+        try:
+            if not cap.isOpened():
+                raise ValueError("Unable to open RTSP stream")
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                raise ValueError("Unable to read frame from RTSP stream")
+            return frame
+        finally:
+            cap.release()
+
     def sample_video_frames(self, data: bytes, max_frames: int = 24) -> tuple[list[np.ndarray], float]:
+        bundle = self.sample_video_bundle(data, max_frames=max_frames)
+        return bundle["frames"], bundle["fps"]
+
+    def sample_video_bundle(self, data: bytes, max_frames: int = 24, profile: str = "uniform") -> dict:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp:
             temp.write(data)
             path = Path(temp.name)
@@ -30,11 +46,8 @@ class VideoInputService:
 
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-            if total <= 0:
-                indices = list(range(max_frames))
-            else:
-                step = max(1, total // max_frames)
-                indices = list(range(0, total, step))[:max_frames]
+            duration_seconds = (total / fps) if fps > 0 and total > 0 else 0.0
+            indices = self._build_indices(total=total, max_frames=max_frames, profile=profile)
 
             frames: list[np.ndarray] = []
             for idx in indices:
@@ -47,9 +60,45 @@ class VideoInputService:
             if not frames:
                 raise ValueError("No valid frame decoded from video")
 
-            return frames, fps
+            return {
+                "frames": frames,
+                "fps": fps,
+                "total_frames": total,
+                "duration_seconds": duration_seconds,
+                "sample_profile": profile,
+            }
         finally:
             path.unlink(missing_ok=True)
+
+    def _build_indices(self, total: int, max_frames: int, profile: str) -> list[int]:
+        if total <= 0:
+            return list(range(max_frames))
+
+        if profile != "slowfast":
+            step = max(1, total // max_frames)
+            return list(range(0, total, step))[:max_frames]
+
+        slow_count = max(8, max_frames // 3)
+        fast_count = max_frames - slow_count
+        slow_step = max(1, total // slow_count)
+        slow_indices = list(range(0, total, slow_step))[:slow_count]
+
+        anchor_count = max(1, fast_count // 4)
+        anchor_step = max(1, total // (anchor_count + 1))
+        anchors = [min(total - 1, anchor_step * (idx + 1)) for idx in range(anchor_count)]
+
+        fast_indices: list[int] = []
+        for anchor in anchors:
+            for offset in (-2, -1, 0, 1):
+                if len(fast_indices) >= fast_count:
+                    break
+                frame_index = min(total - 1, max(0, anchor + offset))
+                fast_indices.append(frame_index)
+
+        merged = sorted(set(slow_indices + fast_indices))
+        if len(merged) > max_frames:
+            merged = merged[:max_frames]
+        return merged
 
     def infer_source_type(self, filename: str, content_type: str) -> str:
         lower = (filename or "").lower()

@@ -10,12 +10,13 @@ const errorMsg = ref('')
 
 const handleLogin = () => {
   isAuthLoading.value = true
-  // 模拟登录
+  errorMsg.value = ''
+
   setTimeout(() => {
-    if (username.value === 'admin' && password.value === '123456') { // 方便演示
+    if (username.value === 'admin' && password.value === '123456') {
       emit('login-success')
     } else {
-      errorMsg.value = '鉴权失败：工号或密钥错误'
+      errorMsg.value = '鉴权失败：工号或访问密钥错误'
     }
     isAuthLoading.value = false
   }, 1000)
@@ -39,7 +40,7 @@ const handleLogin = () => {
         </div>
         <div class="input-group">
           <label>访问密钥</label>
-          <input v-model="password" type="password" placeholder="••••••••" @keyup.enter="handleLogin">
+          <input v-model="password" type="password" placeholder="请输入访问密钥" @keyup.enter="handleLogin">
         </div>
         <button class="login-btn" @click="handleLogin" :disabled="isAuthLoading">
           <span v-if="!isAuthLoading">进入终端系统</span>
@@ -59,7 +60,10 @@ const handleLogin = () => {
 <style scoped>
 .login-wrapper {
   position: fixed;
-  top:0; left:0; right:0; bottom:0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: radial-gradient(circle at 50% 50%, #1a2a47 0%, #0a0e1a 100%);
   display: flex;
   justify-content: center;
@@ -70,7 +74,8 @@ const handleLogin = () => {
 
 .glitch-overlay {
   position: absolute;
-  width: 100%; height: 100%;
+  width: 100%;
+  height: 100%;
   background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
   background-size: 100% 2px, 3px 100%;
   pointer-events: none;
@@ -184,7 +189,7 @@ const handleLogin = () => {
 .loader {
   width: 20px;
   height: 20px;
-  border: 2px solid #FFF;
+  border: 2px solid #fff;
   border-bottom-color: transparent;
   border-radius: 50%;
   display: inline-block;

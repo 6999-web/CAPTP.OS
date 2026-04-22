@@ -4,4 +4,8 @@ import vue from '@vitejs/plugin-vue'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  server: {
+    host: '101.33.210.169',
+    port: 6062
+  }
 })

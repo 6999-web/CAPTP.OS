@@ -18,7 +18,7 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from schemas import AnalyzeMode, TacticalChatRequest
+from schemas import AnalyzeMode, RtspAnalyzeRequest, TacticalChatRequest
 from settings import settings
 from services.pipeline import pipeline
 from services.reference_images import resolve_reference_image
@@ -64,6 +64,13 @@ def _decode_data_url(data: str) -> bytes:
     if "," in data:
         data = data.split(",", 1)[1]
     return base64.b64decode(data)
+
+
+def _encode_frame_b64(frame: np.ndarray) -> str:
+    ok, encoded = cv2.imencode(".jpg", frame)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Unable to encode RTSP frame")
+    return base64.b64encode(encoded.tobytes()).decode("ascii")
 
 
 def _mode_from_legacy(mode: str) -> AnalyzeMode:
@@ -120,6 +127,19 @@ async def analyze_file_v2(file: UploadFile = File(...), mode: AnalyzeMode = Form
     return result.model_dump()
 
 
+@app.post("/api/v2/analyze/long-video")
+async def analyze_long_video_v2(file: UploadFile = File(...), mode: AnalyzeMode = Form(AnalyzeMode.combat_full)):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        result = pipeline.analyze_long_video(content=content, filename=file.filename or "", content_type=file.content_type or "", mode=mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result.model_dump()
+
+
 @app.post("/api/v2/analyze/frame")
 async def analyze_frame_v2(file: UploadFile = File(...), mode: AnalyzeMode = Form(AnalyzeMode.combat_full), frame_index: int = Form(0), fps: float = Form(0.0)):
     content = await file.read()
@@ -129,6 +149,23 @@ async def analyze_frame_v2(file: UploadFile = File(...), mode: AnalyzeMode = For
     frame = pipeline.video_input.decode_image(content)
     result = pipeline.analyze_frame(frame=frame, mode=mode, frame_index=frame_index, fps=fps)
     return result.model_dump()
+
+
+@app.post("/api/v2/analyze/rtsp-frame")
+async def analyze_rtsp_frame_v2(request: RtspAnalyzeRequest):
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="RTSP URL is required")
+
+    try:
+        frame = pipeline.video_input.capture_rtsp_frame(request.url.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = pipeline.analyze_frame(frame=frame, mode=request.mode, frame_index=request.frame_index, fps=request.fps)
+    return {
+        "analysis": result.model_dump(),
+        "frame_b64": _encode_frame_b64(frame),
+    }
 
 
 @app.websocket("/api/v2/stream/analyze")
@@ -236,14 +273,47 @@ def _extract_docx_lines(file_path: Path) -> list[str]:
 
 
 def _parse_tactical_cases(lines: list[str]) -> list[dict]:
-    title_pattern = re.compile(r"^\d{1,2}[\.、]\d{1,2}")
+    title_pattern = re.compile(r'^[“"]?\d{1,2}\.\d{1,2}[”"]?')
+    question_bank = [
+        "请先概括该案核心警情与第一处置目标。",
+        "如果你是现场第一到场警力，你会如何做首轮口头控制和分工？",
+        "在不贸然强攻的前提下，你如何创造接敌窗口并控制升级风险？",
+        "结合本案，请复盘一条关键成功经验和一条可优化策略。",
+    ]
+
+    def is_case_title(text: str) -> bool:
+        compact = re.sub(r"\s+", "", text)
+        return bool(title_pattern.match(compact))
+
+    def normalize_title(text: str) -> str:
+        normalized = text.strip().replace("“", "").replace("”", "")
+        normalized = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", normalized)
+        return normalized
+
+    title_indices = [idx for idx, line in enumerate(lines) if is_case_title(line)]
     out = []
-    for idx, line in enumerate(lines):
-        if title_pattern.match(line.replace(" ", "")):
-            out.append({"id": f"case-{len(out)+1}", "title": line.strip(), "material": "\n".join(lines[idx + 1: idx + 6]), "questions": ["第一到场你如何口头控制现场？", "你如何进行站位和分工？", "你如何固定证据并控制升级风险？"]})
+    for case_idx, start_idx in enumerate(title_indices):
+        end_idx = title_indices[case_idx + 1] if case_idx + 1 < len(title_indices) else len(lines)
+        material_lines = [line.strip() for line in lines[start_idx + 1 : end_idx] if line.strip()]
+        out.append(
+            {
+                "id": f"case-{case_idx + 1}",
+                "title": normalize_title(lines[start_idx]),
+                "material": "\n".join(material_lines[:12]),
+                "questions": question_bank,
+            }
+        )
+
     if out:
         return out
-    return [{"id": "case-1", "title": "题库案例", "material": "\n".join(lines[:8]), "questions": ["你如何做第一轮处置？"]}]
+    return [
+        {
+            "id": "case-1",
+            "title": "题库案例",
+            "material": "\n".join(lines[:8]),
+            "questions": ["你如何做第一轮处置？"],
+        }
+    ]
 
 
 @app.get("/api/tactical-cases")

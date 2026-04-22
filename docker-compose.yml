@@ -14,7 +14,7 @@ services:
     environment:
       - CAPTP_RUNTIME_PROFILE=cpu
     ports:
-      - "8000:8000"
+      - "6063:6063"
     volumes:
       - ./backend:/app/backend
 
@@ -30,7 +30,7 @@ services:
     environment:
       - CAPTP_RUNTIME_PROFILE=gpu
     ports:
-      - "8000:8000"
+      - "6063:6063"
     volumes:
       - ./backend:/app/backend
     deploy:
@@ -73,7 +73,7 @@ services:
 <<<<<<< HEAD
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "6062:80"
     depends_on:
       - backend-cpu
 
